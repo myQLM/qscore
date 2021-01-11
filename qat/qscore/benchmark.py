@@ -129,7 +129,7 @@ class QScore:
             print("Score: {:.2f}.".format(average_score), end=" ")
             print("Random score: {:.2f}.".format(size * (size - 1) / 8), end="\t")
             to_output += "{},{},{}\n".format(size, average_score, size * (size - 1) / 8)
-            if average_score > size * (size - 1) / 8:
+            if average_score > size * (size - 1) / 8:  # TODO check this
                 print("Pass.")
                 largest_pass = size
             else:
