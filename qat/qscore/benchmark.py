@@ -74,6 +74,7 @@ class QScore:
         self,
         qpu,
         size_limit=_DEFAULT_SIZE_LIMIT,
+        initial_size=_INITIAL_SIZE,
         depth=_DEFAULT_DEPTH,
         output=_DEFAULT_OUT_FILE,
         rawdata=_DEFAULT_RAW_FILE,
@@ -81,6 +82,7 @@ class QScore:
     ):
         self._executor = qpu
         self._size_limit = size_limit
+        self._initial_size = initial_size
         self._depth = depth
         self._output = output
         self._rawdata = rawdata
@@ -94,7 +96,7 @@ class QScore:
         print(
             _INTRO.format(
                 date=date_string,
-                init_size=_INITIAL_SIZE,
+                init_size=self._initial_size,
                 final_size=self._size_limit,
                 depth=self._depth,
                 output=self._output,
@@ -107,14 +109,14 @@ class QScore:
         seed = self._seed
         to_output = _HEADER.format(
             date=date_string,
-            init_size=_INITIAL_SIZE,
+            init_size=self._initial_size,
             final_size=self._size_limit,
             depth=self._depth,
             output=self._output,
             rawdata=self._rawdata,
             seed=self._seed,
         )
-        for size in range(_INITIAL_SIZE, self._size_limit + 1):
+        for size in range(self._initial_size, self._size_limit + 1):
             print("Running for n={:2d}.".format(size), end=" ", flush=True)
             scores = []
             data = []
@@ -129,6 +131,11 @@ class QScore:
             print("Score: {:.2f}.".format(average_score), end=" ")
             print("Random score: {:.2f}.".format(size * (size - 1) / 8), end="\t")
             to_output += "{},{},{}\n".format(size, average_score, size * (size - 1) / 8)
+
+            pickle.dump(all_data, open(self._rawdata, "wb"))
+            with open(self._output, "w") as fout:
+                fout.write(to_output)
+
             if average_score > size * (size - 1) / 8:  # TODO check this
                 print("Pass.")
                 largest_pass = size
@@ -136,9 +143,6 @@ class QScore:
                 print("Fail.")
                 break
         print("Q-Score of", largest_pass)
-        pickle.dump(all_data, open(self._rawdata, "wb"))
-        with open(self._output, "w") as fout:
-            fout.write(to_output)
 
 
 _PARSER = argparse.ArgumentParser(prog="qscore")
