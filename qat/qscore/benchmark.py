@@ -15,7 +15,8 @@ import importlib
 import argparse
 from datetime import datetime
 import numpy as np
-from qat.qscore.job_generation import generate_maxcut_job
+from .job_generation import generate_maxcut_job
+from .iterators import Driver
 
 """
 Things to improve:
@@ -37,6 +38,7 @@ _DEFAULT_RAW_FILE = "out.raw"
 
 _INTRO = """=== Running Q-score benchmark | {date} ===
 Instances size:    {init_size} -- {final_size}
+Beta:              {beta}
 Ansatz depth:      {depth}
 Output file:       {output}
 Raw output file:   {rawdata}
@@ -46,6 +48,7 @@ Random seed:       {seed}
 _HEADER = """# Q-Score run | {date}
 # Instances size:    {init_size} -- {final_size}
 # Ansatz depth:      {depth}
+# Beta:              {beta}
 # Output file:       {output}
 # Raw output file:   {rawdata}
 # Random seed:       {seed}
@@ -54,14 +57,20 @@ _HEADER = """# Q-Score run | {date}
 
 
 class QScore:
+    # pylint: disable=too-many-instance-attributes
     """
     # TODO #
 
     Arguments:
         qpu(:class:`~qat.core.qpu.QPUHandler`): the QPU to benchmark (including its compilation stack).
           The QPU should support variational optimization.
+        initial_size(int, optional): the initial instance size to try. Default to 5.
         size_limit(int, optional): a limit on the size of MAX-CUT instances to try to solve.
           Instance sizes will vary from 5 to this limit. Default to 20.
+        beta(float, optional): the threshold ratio for the test. The official test uses
+          TODO as threshold. Default to 0.05. This number should be (way) below 0.175.
+        iterator(str, optional): the iteration method to use ("exhaustive" or "dichotomic").
+          Default to "dichotomic".
         depth(int, optional): the QAOA depth to use. Default to 1.
         output(str, optional): a file name to store the benchmark output (in CSV format).
           Default to out.csv.
@@ -75,6 +84,8 @@ class QScore:
         qpu,
         size_limit=_DEFAULT_SIZE_LIMIT,
         initial_size=_INITIAL_SIZE,
+        beta=0.03,
+        iterator="dichotomic",
         depth=_DEFAULT_DEPTH,
         output=_DEFAULT_OUT_FILE,
         rawdata=_DEFAULT_RAW_FILE,
@@ -82,11 +93,13 @@ class QScore:
     ):
         self._executor = qpu
         self._size_limit = size_limit
+        self._iterator = iterator
         self._initial_size = initial_size
         self._depth = depth
         self._output = output
         self._rawdata = rawdata
         self._seed = seed if seed is not None else np.random.randint(100000)
+        self._beta = beta
 
     def run(self):
         """
@@ -98,6 +111,7 @@ class QScore:
                 date=date_string,
                 init_size=self._initial_size,
                 final_size=self._size_limit,
+                beta=self._beta,
                 depth=self._depth,
                 output=self._output,
                 rawdata=self._rawdata,
@@ -105,19 +119,24 @@ class QScore:
             )
         )
         all_data = {}
-        largest_pass = 0
         seed = self._seed
         to_output = _HEADER.format(
             date=date_string,
             init_size=self._initial_size,
+            beta=self._beta,
             final_size=self._size_limit,
             depth=self._depth,
             output=self._output,
             rawdata=self._rawdata,
             seed=self._seed,
         )
-        for size in range(self._initial_size, self._size_limit + 1):
-            print("Running for n={:2d}.".format(size), end=" ", flush=True)
+        all_data = []
+
+        def _evaluate_point(size, seed=seed, to_output=to_output, self=self):
+            """
+            Function that evaluates a single point.
+            """
+            print(f"Running for n={size:2d}.", end=" ", flush=True)
             scores = []
             data = []
             for index in range(_NB_INSTANCES_PER_SIZE):
@@ -126,23 +145,30 @@ class QScore:
                 scores.append(-result.value)
                 data.append({"seed": seed, "score": -result.value})
                 seed += 1
-            all_data[size] = data
             average_score = np.mean(scores)
-            print("Score: {:.2f}.".format(average_score), end=" ")
-            print("Random score: {:.2f}.".format(size * (size - 1) / 8), end="\t")
-            to_output += "{},{},{}\n".format(size, average_score, size * (size - 1) / 8)
+            threshold_score = size * (size - 1) / 8 + self._beta * pow(size, 3 / 2)
+            print(f"Score: {average_score:.2f}.", end=" ")
+            print(f"Random score: {threshold_score:.2f}.", end="\t")
+            to_output = f"{size},{average_score},{threshold_score}\n"
 
             pickle.dump(all_data, open(self._rawdata, "wb"))
             with open(self._output, "w") as fout:
                 fout.write(to_output)
-
-            if average_score > size * (size - 1) / 8:  # TODO check this
-                print("Pass.")
-                largest_pass = size
+            effective_delta = average_score - threshold_score
+            if effective_delta > 0:
+                print("Success.")
             else:
                 print("Fail.")
-                break
-        print("Q-Score of", largest_pass)
+            return effective_delta
+
+        success, values, score = Driver(
+            _evaluate_point, self._iterator, self._initial_size, self._size_limit
+        ).run()
+
+        if success:
+            print(f"Sucess. QScore({self._beta}) = {score}")
+        else:
+            print(f"Failure. Couldn't compute QScore({self._beta})")
 
 
 _PARSER = argparse.ArgumentParser(prog="qscore")
