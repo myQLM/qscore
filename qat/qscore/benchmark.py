@@ -41,7 +41,7 @@ inserting the proper variational optimizer in between.
 """
 
 
-_NB_INSTANCES_PER_SIZE = 40
+_NB_INSTANCES_PER_SIZE = 100
 _INITIAL_SIZE = 5
 _DEFAULT_SIZE_LIMIT = 20
 _DEFAULT_DEPTH = 1
