@@ -143,7 +143,6 @@ class QScore:
             rawdata=self._rawdata,
             seed=self._seed,
         )
-        all_data = []
 
         def _evaluate_point(size, seed=seed, to_output=to_output, self=self):
             """
@@ -163,9 +162,9 @@ class QScore:
             print(f"Score: {average_score:.2f}.", end=" ")
             print(f"Random score: {threshold_score:.2f}.", end="\t")
             to_output = f"{size},{average_score},{threshold_score}\n"
-
+            all_data[size] = data
             pickle.dump(all_data, open(self._rawdata, "wb"))
-            with open(self._output, "w") as fout:
+            with open(self._output, "a") as fout:
                 fout.write(to_output)
             effective_delta = average_score - threshold_score
             if effective_delta > 0:
