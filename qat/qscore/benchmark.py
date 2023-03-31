@@ -31,15 +31,6 @@ import numpy as np
 from .job_generation import generate_maxcut_job
 from .iterators import Driver
 
-"""
-Things to improve:
-
-*********
-Currently the QPU is expected to support variational optimization.
-We could ask the user to provide a QPU and a compilation stack separately, and take care of
-inserting the proper variational optimizer in between.
-"""
-
 
 _NB_INSTANCES_PER_SIZE = 100
 _INITIAL_SIZE = 5
@@ -72,7 +63,6 @@ _HEADER = """# Q-Score run | {date}
 class QScore:
     # pylint: disable=too-many-instance-attributes
     """
-    # TODO #
 
     Arguments:
         qpu(:class:`~qat.core.qpu.QPUHandler`): the QPU to benchmark (including its compilation stack).
@@ -81,7 +71,7 @@ class QScore:
         size_limit(int, optional): a limit on the size of MAX-CUT instances to try to solve.
           Instance sizes will vary from 5 to this limit. Default to 20.
         beta(float, optional): the threshold ratio for the test. The official test uses
-          TODO as threshold. Default to 0.05. This number should be (way) below 0.175.
+          20% (0.2) as threshold. Default to 0.2
         iterator(str, optional): the iteration method to use ("exhaustive" or "dichotomic").
           Default to "dichotomic".
         depth(int, optional): the QAOA depth to use. Default to 1.
@@ -97,7 +87,7 @@ class QScore:
         qpu,
         size_limit=_DEFAULT_SIZE_LIMIT,
         initial_size=_INITIAL_SIZE,
-        beta=0.03,
+        beta=0.2,
         iterator="dichotomic",
         depth=_DEFAULT_DEPTH,
         output=_DEFAULT_OUT_FILE,
@@ -151,42 +141,42 @@ class QScore:
             print(f"Running for n={size:2d}.", end=" ", flush=True)
             scores = []
             data = []
-            for index in range(_NB_INSTANCES_PER_SIZE):
+            for _ in range(_NB_INSTANCES_PER_SIZE):
                 job = generate_maxcut_job(size, self._depth, seed=seed)
                 result = self._executor.submit(job)
                 scores.append(-result.value)
                 data.append({"seed": seed, "score": -result.value})
                 seed += 1
-            average_score = np.mean(scores)
-            threshold_score = size * (size - 1) / 8 + self._beta * pow(size, 3 / 2)
+            average_score = np.mean(scores) - size * (size - 1) / 8
+            avg_best_score = 0.178 * pow(size, 3 / 2)
             print(f"Score: {average_score:.2f}.", end=" ")
-            print(f"Random score: {threshold_score:.2f}.", end="\t")
-            to_output = f"{size},{average_score},{threshold_score}\n"
+            print(f"Random best score: {avg_best_score:.2f}.", end="\t")
+            to_output = f"{size},{average_score},{avg_best_score}\n"
             all_data[size] = data
             pickle.dump(all_data, open(self._rawdata, "wb"))
             with open(self._output, "a") as fout:
                 fout.write(to_output)
-            effective_delta = average_score - threshold_score
-            if effective_delta > 0:
+            achieved_ratio = average_score / avg_best_score
+            if achieved_ratio > self._beta:
                 print("Success.")
             else:
                 print("Fail.")
-            return effective_delta
+            return achieved_ratio - self._beta
 
-        success, values, score = Driver(
-            _evaluate_point, self._iterator, self._initial_size, self._size_limit
-        ).run()
+        success, _, info = Driver(_evaluate_point, self._iterator, self._initial_size, self._size_limit).run()
 
         if success:
-            print(f"Success. QScore({self._beta}) = {score}")
+            print(f"Success. QScore({self._beta}) = {info}")
         else:
-            print(f"Failure. Couldn't compute QScore({self._beta})")
+            if info[0]:
+                print(f"Failure. QScore({self._beta}) > {info[1]}")
+                print("Maybe try to increase the max instance size !")
+            else:
+                print(f"Failure. QScore({self._beta}) < {info[1]}")
 
 
 _PARSER = argparse.ArgumentParser(prog="qscore")
-_PARSER.add_argument(
-    "qpu", type=str, help="The QPU to benchmark in 'module:object' format"
-)
+_PARSER.add_argument("qpu", type=str, help="The QPU to benchmark in 'module:object' format")
 _PARSER.add_argument(
     "--plugin",
     action="append",
@@ -202,33 +192,23 @@ _PARSER.add_argument(
     type=int,
     default=20,
     help=(
-        "A limit on the size of MAX-CUT instances to try to solve. Instance sizes will"
-        " vary from 5 to this limit. Default to 20."
+        "A limit on the size of MAX-CUT instances to try to solve. Instance sizes will" " vary from 5 to this limit. Default to 20."
     ),
 )
-_PARSER.add_argument(
-    "--depth", type=int, default=1, help="The QAOA depth to use. Default to 1."
-)
+_PARSER.add_argument("--depth", type=int, default=1, help="The QAOA depth to use. Default to 1.")
 _PARSER.add_argument(
     "--output",
     type=str,
     default="out.csv",
-    help=(
-        "A file name to store the benchmark output (in CSV format). Default to out.csv"
-    ),
+    help=("A file name to store the benchmark output (in CSV format). Default to out.csv"),
 )
 _PARSER.add_argument(
     "--rawdata",
     type=str,
     default="out.raw",
-    help=(
-        "A file name in which to store the raw output of all the runs performed during"
-        " the benchmark. Default to out.raw."
-    ),
+    help=("A file name in which to store the raw output of all the runs performed during" " the benchmark. Default to out.raw."),
 )
-_PARSER.add_argument(
-    "--seed", type=int, default=None, help="A seed for the instances generation."
-)
+_PARSER.add_argument("--seed", type=int, default=None, help="A seed for the instances generation.")
 
 
 def _load_qpu(argument, plugins):

@@ -26,16 +26,18 @@
 
 
 def _exhaustive(start_size, end_size):
-    """"""
+    """
+    Iterates over all the values of the domain until it finds a negative value.
+    """
     values = dict()
     for index in range(start_size, end_size + 1):
         value = yield index
         values[index] = value
         if value < 0:
             if index == start_size:
-                return False, value, None
+                return False, value, (False, start_size)
             return True, values, index - 1
-    return False, values, None
+    return False, values, (True, max(values), values[max(values)])
 
 
 def _dichotomic(start_size, end_size):
@@ -49,9 +51,9 @@ def _dichotomic(start_size, end_size):
     values[upper] = value
 
     if values[upper] > 0:
-        return False, values, None
+        return False, values, (True, max(values), values[max(values)])
     if values[lower] < 0:
-        return False, value, None
+        return False, value, (False, start_size)
     while True:
         if abs(upper - lower) <= 1:
             return True, values, lower
@@ -97,25 +99,3 @@ class Driver:
                 index = self.generator.send(self.fun(index))
             except StopIteration as exp:
                 return exp.value
-        return False, {}, None
-
-
-if __name__ == "__main__":
-    import numpy as np
-    MAX_V = 10000 - 1
-    SOME = np.random.randint(0, MAX_V)
-    ARRAY = list(range(MAX_V))
-
-    def some_function(index):
-        return (SOME - ARRAY[index]) + 1e-3
-
-    success, values, index = Driver(
-        some_function, "exhaustive", 0, MAX_V - 1
-    ).run()
-    print(success, index, values[index])
-
-    success, values, index = Driver(
-        some_function, "dichotomic", 0, MAX_V - 1
-    ).run()
-    print(success, index, values[index])
-

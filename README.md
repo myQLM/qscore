@@ -11,6 +11,6 @@ To install run:
 $ python -m pip install .
 
 
-
+THe QPU to benchmark should be wrapped inside a QLM QPUHandler.
 
 
