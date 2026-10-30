@@ -31,5 +31,3 @@ OPTIMIZER = ScipyMinimizePlugin(
         "maxiter": 300
     }
 )
-
-

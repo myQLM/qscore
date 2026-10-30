@@ -23,7 +23,7 @@
     under the License.
 """
 import networkx as nx
-from qat.vsolve.qaoa import MaxCut
+from qat.opt import MaxCut
 
 
 def generate_maxcut_job(size, depth, seed=None):
@@ -37,4 +37,4 @@ def generate_maxcut_job(size, depth, seed=None):
     """
     graph = nx.generators.erdos_renyi_graph(size, 0.5, seed=seed)
     instance = MaxCut(graph)
-    return instance.qaoa_ansatz(depth)
+    return instance.qaoa_job(depth)

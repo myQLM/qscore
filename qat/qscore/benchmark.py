@@ -26,6 +26,7 @@
 import pickle
 import importlib
 import argparse
+import time
 from datetime import datetime
 import numpy as np
 from .job_generation import generate_maxcut_job
@@ -106,7 +107,10 @@ class QScore:
 
     def run(self):
         """
-        Runs the benchmark.
+        Runs the benchmark and returns a JSON-serializable result summary.
+
+        The summary contains the boundary status and value, per-size aggregate
+        evaluations, and the raw scores and seeds for each evaluated instance.
         """
         date_string = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         print(
@@ -121,7 +125,8 @@ class QScore:
                 seed=self._seed,
             )
         )
-        all_data = {}
+        all_data = {} # Stores raw data for each size
+        evaluations = {} # Stores per-size aggregated stats, returned in the JSON summary
         seed = self._seed
         to_output = _HEADER.format(
             date=date_string,
@@ -143,20 +148,31 @@ class QScore:
             data = []
             for _ in range(_NB_INSTANCES_PER_SIZE):
                 job = generate_maxcut_job(size, self._depth, seed=seed)
+                started = time.perf_counter()
                 result = self._executor.submit(job)
-                scores.append(-result.value)
-                data.append({"seed": seed, "score": -result.value})
+                score = float(-result.value)
+                duration = time.perf_counter() - started
+                scores.append(score)
+                data.append({"seed": seed, "score": score, "duration_seconds": duration})
                 seed += 1
-            average_score = np.mean(scores) - size * (size - 1) / 8
+            average_score = float(np.mean(scores) - size * (size - 1) / 8)
             avg_best_score = 0.178 * pow(size, 3 / 2)
+            achieved_ratio = average_score / avg_best_score
             print(f"Score: {average_score:.2f}.", end=" ")
             print(f"Random best score: {avg_best_score:.2f}.", end="\t")
             to_output = f"{size},{average_score},{avg_best_score}\n"
             all_data[size] = data
-            pickle.dump(all_data, open(self._rawdata, "wb"))
+            evaluations[size] = {
+                "average_score": average_score,
+                "random_best_score": avg_best_score,
+                "ratio": achieved_ratio,
+                "success": bool(achieved_ratio > self._beta),
+                "instance_duration_sum": sum(row["duration_seconds"] for row in data),
+            }
+            with open(self._rawdata, "wb") as raw_file:
+                pickle.dump(all_data, raw_file)
             with open(self._output, "a") as fout:
                 fout.write(to_output)
-            achieved_ratio = average_score / avg_best_score
             if achieved_ratio > self._beta:
                 print("Success.")
             else:
@@ -166,13 +182,27 @@ class QScore:
         success, _, info = Driver(_evaluate_point, self._iterator, self._initial_size, self._size_limit).run()
 
         if success:
-            print(f"Success. QScore({self._beta}) = {info}")
+            status = "boundary" # The QScore is exactly at the threshold beta
+            value = info
+            print(f"Success. QScore({self._beta}) = {value}")
         else:
             if info[0]:
-                print(f"Failure. QScore({self._beta}) > {info[1]}")
+                status = "above_limit" # The QScore is above the size limit
+                value = info[1]
+                print(f"Failure. QScore({self._beta}) > {value}")
                 print("Maybe try to increase the max instance size !")
             else:
-                print(f"Failure. QScore({self._beta}) < {info[1]}")
+                status = "below_initial" # The QScore is below the initial size
+                value = info[1]
+                print(f"Failure. QScore({self._beta}) < {value}")
+
+        return {
+            "status": status,
+            "value": int(value),
+            "beta": float(self._beta),
+            "evaluations": evaluations,
+            "raw_data": all_data,
+        }
 
 
 _PARSER = argparse.ArgumentParser(prog="qscore")
